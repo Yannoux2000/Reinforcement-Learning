@@ -51,7 +51,11 @@ class Brain():
 		b3 = tf.Variable(tf.zeros([NUM_ACTIONS]))
 		p = tf.nn.softmax(tf.matmul(l_hidden,w3) + b3)
 
-		return v,p,l_o,
+		return v,p,l_o
+
+	def Build_Optimizer(ModelPack):
+		v,p,l_o = ModelPack
+		
 
 	def Predict(o):
 		p,v = self.sess.run([policy,value],{l_o : o})
@@ -60,8 +64,7 @@ class Brain():
 class Agent():
 	"""l'Agent est l'equivalent d'une telecommande pour le Brain, il en gere plusieurs en meme temps"""
 	def __init__(self):
-
-
+		
 		
 
 
