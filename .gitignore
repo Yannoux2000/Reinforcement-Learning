@@ -99,3 +99,6 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# Any TensorBoard dir where i store all tensorflow logs
+TB/
