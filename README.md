@@ -8,8 +8,6 @@ Files Archived :
     -all the other (you won't get me to list everything in here :P)
 
 
-# BTW how to i create new lines in a .md ?
-
 # Requirements
 
 you need to install openAI's GYM at least for everything in the openaigym subfolder
