@@ -39,23 +39,28 @@ class Brain():
 		l_o = tf.placeholder(tf.float32,[None,NUM_OBS])
 
 		# 	with tf.name_scope("FCLayer"):
-		w1 = tf.Variable(tf.random_normal([NUM_OBS,16]))
-		b1 = tf.Variable(tf.zeros([16]))
-		l_hidden = tf.nn.relu(tf.matmul(l_o,w1) + b1)
+		wv1 = tf.Variable(tf.random_normal([NUM_OBS,16]))
+		bv1 = tf.Variable(tf.zeros([16]))
+		l_hidden = tf.nn.relu(tf.matmul(l_o,wv1) + bv1)
 
-		w2 = tf.Variable(tf.random_normal([16,1]))
-		b2 = tf.Variable(tf.zeros([1]))
-		v = tf.matmul(l_hidden,w2) + b2
+		wv2 = tf.Variable(tf.random_normal([16,1]))
+		bv2 = tf.Variable(tf.zeros([1]))
+		v = tf.matmul(l_hidden,wv2) + bv2
 
-		w3 = tf.Variable(tf.random_normal([16,NUM_ACTIONS]))
-		b3 = tf.Variable(tf.zeros([NUM_ACTIONS]))
-		p = tf.nn.softmax(tf.matmul(l_hidden,w3) + b3)
+
+		wp1 = tf.Variable(tf.random_normal([NUM_OBS,16]))
+		bp1 = tf.Variable(tf.zeros([16]))
+		l_hidden = tf.nn.relu(tf.matmul(l_o,wp1) + bp1)
+
+		wp2 = tf.Variable(tf.random_normal([16,NUM_ACTIONS]))
+		bp2 = tf.Variable(tf.zeros([NUM_ACTIONS]))
+		p = tf.nn.softmax(tf.matmul(l_hidden,wp2) + bp2)
 
 		return v,p,l_o
 
 	def Build_Optimizer(ModelPack):
 		v,p,l_o = ModelPack
-		
+
 
 	def Predict(o):
 		p,v = self.sess.run([policy,value],{l_o : o})

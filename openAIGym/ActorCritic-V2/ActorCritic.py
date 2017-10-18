@@ -35,12 +35,12 @@ import matplotlib.pyplot as plt
 Separated_Networks = 0
 
 ###ENV Var : 
-env_name = 'CartPole-v0'
-obs_space_size = 4
-act_space_n = 2
+env_name = 'Breakout-ram-v0'
+# obs_space_size = 2
+# act_space_n = 3
 
 ##TESTPARAMETER
-number_Episodes = 20000
+number_Episodes = 2000
 max_steps = 1000
 
 #meilleur score avec lr=0.01 il=0 gamma=0.95
@@ -48,9 +48,11 @@ max_steps = 1000
 
 
 intermediate_layer = 0
-learning_rate = 0.1
-beta = 0
-gamma = 0.98
+learning_rate = 0.01
+beta = -0.2
+gamma = 0.90
+
+totalrandomepisode = 20
 
 # Mauvaise Implementation d'un reseau commun
 
@@ -77,7 +79,7 @@ gamma = 0.98
 # 		return calculate,smry_commun
 
 
-def policy_gradient(input,obs_channel,act_channel,actions,advantages):
+def policy_gradient(input,inputm1,obs_channel,act_channel,actions,advantages):
 	#input,obs_channel,act_channel,actions,advantages
 	with tf.variable_scope("policy"):
 
@@ -87,32 +89,32 @@ def policy_gradient(input,obs_channel,act_channel,actions,advantages):
 			probabilities = tf.nn.softmax(linear)
 
 
-			smry_params = tf.summary.histogram("params", params)
+			# smry_params = tf.summary.histogram("params", params)
 
 		with tf.name_scope("diffs_and_loss"):
 			esperance = tf.reduce_sum(tf.multiply(probabilities, actions),reduction_indices=[1])
-			#Policy_loss = -log(E[policy|s]) * A(s) // pas de calcule de beta pour le moment - beta*H(policy(s))
-			#si beta = 0 alors aucune exploration n'est parametre
-			eligibility = tf.log(esperance) * advantages + beta * tf.reduce_sum(tf.multiply(probabilities,tf.log(probabilities)))
+			#Policy_loss = -log(E[policy|s]) * A(s) - beta*H(policy(s))
+			#si beta = 0 alors aucune exploration n'est parametre, on ajoute un tres petit chiffre pour eviter le log(0)
+			eligibility = tf.log(esperance) * advantages + beta * tf.stop_gradient(tf.reduce_sum(tf.log(probabilities+1e-10)))
 			loss = -tf.reduce_sum(eligibility)
 
 		optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
 
 	smry_loss = tf.summary.scalar("Policy_Losses", loss)
-	smry_policy = tf.summary.merge([smry_loss,smry_params])
+	smry_policy = tf.summary.merge([smry_loss])#smry_params
 
 	return (probabilities, optimizer),smry_policy
 
 
-def value_gradient(input,obs_channel,newvals):
-	#input,obs_channel,act_channel,newvals
+def value_gradient(inputm0,inputm1,obs_channel,newvals):
+	#inputm0,obs_channel,act_channel,newvals
 	with tf.variable_scope("value"):
 
 		with tf.name_scope("FCLayer"):
 			w1 = tf.Variable(tf.random_normal([obs_channel,10]),name="w1")
 			b1 = tf.Variable(tf.zeros([10]),name="b1")
-			h1 = tf.matmul(input,w1) + b1
+			h1 = tf.matmul(inputm0,w1) + b1
 
 			smry_w1 = tf.summary.histogram("w1", w1)
 			smry_b1 = tf.summary.histogram("b1", b1)
@@ -150,15 +152,21 @@ def probs_to_action(probs):
 		probsum += probs[action]
 
 	# print "probsum : {}".format(probsum)
+	# print action
 	return action
 
 
 def run_episode(env, policy_grad, value_grad, sess):
 	pl_calculate, pl_optimizer = policy_grad
 	vl_calculate, vl_optimizer = value_grad
+
+	#getting first observations and olders init
 	obs = env.reset()
+	old_obs = obs
+
 	totalreward = 0
 	epi_states = []
+	old_epi_states = []
 	epi_actions = []
 	epi_advantages = []
 	epi_transitions = []
@@ -170,37 +178,41 @@ def run_episode(env, policy_grad, value_grad, sess):
 
 		#preparation des obs
 		obs_vector = np.expand_dims(obs, axis=0)# de [obs] vers [None,obs] pour les stacker durant l entrainement
-		probs = sess.run(pl_calculate,feed_dict={observation: obs_vector})
+		old_obs_vector = np.expand_dims(old_obs, axis=0)
+		probs = sess.run(pl_calculate,feed_dict={observation: obs_vector,old_observation: old_obs_vector})
 		
 		#traduction probabilites en epi_actions
 		action = probs_to_action(probs[0])
 
 		# record the agent_state
 		epi_states.append(obs)
+		old_epi_states.append(old_obs)
 		actionblank = np.zeros(act_space_n)
 		actionblank[action] = 1
 		epi_actions.append(actionblank)
 		
 		# take the action in the environment
+		evenolder_obs = old_obs
 		old_obs = obs
 		obs, reward, done, info = env.step(action)
-		epi_transitions.append((old_obs, action, reward))
+		epi_transitions.append(((old_obs,evenolder_obs), action, reward))
 		totalreward += reward
 
-		env.render()
+		# env.render()
 
 		# #TD Learning
 		# cette algo peu etre instable et provoque des oscilations a revoir ?
 
-		newobs_vector = np.expand_dims(obs, axis=0)# de [obs] vers [None,obs] pour les stacker durant l entrainement
-		nextval = sess.run(vl_calculate,feed_dict={observation: newobs_vector})[0][0]
+		# obs_vector = np.expand_dims(obs, axis=0)# de [obs] vers [None,obs] pour les stacker durant l entrainement
+		# old_obs_vector = np.expand_dims(old_obs, axis=0)
+		# nextval = sess.run(vl_calculate,feed_dict={observation: obs_vector,old_observation: old_obs_vector})[0][0]
 
-		realval = reward + gamma * nextval
-		sess.run(vl_optimizer,feed_dict={observation : obs_vector, newvals: [[realval]]})
-		currentval = sess.run(vl_calculate,feed_dict={observation: obs_vector})[0][0]
+		# realval = reward + gamma * nextval
+		# sess.run(vl_optimizer,feed_dict={observation : obs_vector, old_observation: old_obs_vector, newvals: [[realval]]})
+		# currentval = sess.run(vl_calculate,feed_dict={observation: obs_vector,old_observation: old_obs_vector})[0][0]
 
-		realadvantage = realval - currentval
-		sess.run(pl_optimizer, feed_dict={observation: obs_vector, advantage: [[realadvantage]], pl_actions: [actionblank]})
+		# realadvantage = realval - currentval
+		# sess.run(pl_optimizer, feed_dict={observation: obs_vector,old_observation: old_obs_vector, advantage: [[realadvantage]], pl_actions: [actionblank]})
 		# #end TD
 
 		if done:
@@ -222,10 +234,11 @@ def run_episode(env, policy_grad, value_grad, sess):
 			realval += epi_transitions[index2 + index][2] * discount
 			discount = discount * gamma
 		
-		obs_vector = np.expand_dims(obs, axis=0)
+		obs_vector = np.expand_dims(obs[0], axis=0)
+		old_obs_vector = np.expand_dims(obs[1], axis=0)
 		
 		#valeur utilise precedament
-		currentval = sess.run(vl_calculate,feed_dict={observation: obs_vector})[0][0]
+		currentval = sess.run(vl_calculate,feed_dict={observation: obs_vector,old_observation: old_obs_vector})[0][0]
 
 		# advantage: how much better was this action than normal
 		epi_advantages.append(realval - currentval)
@@ -235,14 +248,118 @@ def run_episode(env, policy_grad, value_grad, sess):
 
 	# update value function
 	update_vals_vector = np.expand_dims(update_vals, axis=1)
-	sess.run(vl_optimizer, feed_dict={observation: epi_states, newvals: update_vals_vector})
+	sess.run(vl_optimizer, feed_dict={observation: epi_states,old_observation: old_epi_states, newvals: update_vals_vector})
 
 	# update policy function
 	epi_advantages_vector = np.expand_dims(epi_advantages, axis=1)
-	sess.run(pl_optimizer, feed_dict={observation: epi_states, advantage: epi_advantages_vector, pl_actions: epi_actions})
+	sess.run(pl_optimizer, feed_dict={observation: epi_states, old_observation: old_epi_states, advantage: epi_advantages_vector, pl_actions: epi_actions})
 
 	if episode%10==0:
-		s = sess.run(steps_summary,{observation: epi_states, newvals: update_vals_vector, advantage: epi_advantages_vector, pl_actions: epi_actions})
+		s = sess.run(steps_summary,{observation: epi_states, old_observation: old_epi_states, newvals: update_vals_vector, advantage: epi_advantages_vector, pl_actions: epi_actions})
+		writer.add_summary(s,episode)
+
+	return totalreward
+
+def run_randomepisode(env, policy_grad, value_grad, sess):
+	pl_calculate, pl_optimizer = policy_grad
+	vl_calculate, vl_optimizer = value_grad
+
+	#getting first observations and olders init
+	obs = env.reset()
+	old_obs = obs
+
+	totalreward = 0
+	epi_states = []
+	old_epi_states = []
+	epi_actions = []
+	epi_advantages = []
+	epi_transitions = []
+	update_vals = []
+
+
+	for t in xrange(max_steps):
+		# calculate policy
+
+		#preparation des obs
+		obs_vector = np.expand_dims(obs, axis=0)# de [obs] vers [None,obs] pour les stacker durant l entrainement
+		old_obs_vector = np.expand_dims(old_obs, axis=0)
+		probs = sess.run(pl_calculate,feed_dict={observation: obs_vector,old_observation: old_obs_vector})
+		
+		#traduction probabilites en epi_actions
+		action = env.action_space.sample()
+
+		# record the agent_state
+		epi_states.append(obs)
+		old_epi_states.append(old_obs)
+		actionblank = np.zeros(act_space_n)
+		actionblank[action] = 1
+		epi_actions.append(actionblank)
+		
+		# take the action in the environment
+		evenolder_obs = old_obs
+		old_obs = obs
+		obs, reward, done, info = env.step(action)
+		epi_transitions.append(((old_obs,evenolder_obs), action, reward))
+		totalreward += reward
+
+		env.render()
+
+		# #TD Learning
+		# cette algo peu etre instable et provoque des oscilations a revoir ?
+
+		# obs_vector = np.expand_dims(obs, axis=0)# de [obs] vers [None,obs] pour les stacker durant l entrainement
+		# old_obs_vector = np.expand_dims(old_obs, axis=0)
+		# nextval = sess.run(vl_calculate,feed_dict={observation: obs_vector,old_observation: old_obs_vector})[0][0]
+
+		# realval = reward + gamma * nextval
+		# sess.run(vl_optimizer,feed_dict={observation : obs_vector, old_observation: old_obs_vector, newvals: [[realval]]})
+		# currentval = sess.run(vl_calculate,feed_dict={observation: obs_vector,old_observation: old_obs_vector})[0][0]
+
+		# realadvantage = realval - currentval
+		# sess.run(pl_optimizer, feed_dict={observation: obs_vector,old_observation: old_obs_vector, advantage: [[realadvantage]], pl_actions: [actionblank]})
+		# #end TD
+
+		if done:
+			break
+
+	#END OF THE EPISODE
+
+	for index, trans in enumerate(epi_transitions):
+		obs, _, reward = trans
+
+		# calculate discounted monte-carlo return
+		#monte-carlo is offline
+		future_epi_transitions = len(epi_transitions) - index
+		discount = 1
+		realval = 0
+
+		# calcule des valeur des epi_states
+		for index2 in xrange(future_epi_transitions):
+			realval += epi_transitions[index2 + index][2] * discount
+			discount = discount * gamma
+		
+		obs_vector = np.expand_dims(obs[0], axis=0)
+		old_obs_vector = np.expand_dims(obs[1], axis=0)
+		
+		#valeur utilise precedament
+		currentval = sess.run(vl_calculate,feed_dict={observation: obs_vector,old_observation: old_obs_vector})[0][0]
+
+		# advantage: how much better was this action than normal
+		epi_advantages.append(realval - currentval)
+
+		# update the value function towards new return
+		update_vals.append(realval)
+
+	# update value function
+	update_vals_vector = np.expand_dims(update_vals, axis=1)
+	sess.run(vl_optimizer, feed_dict={observation: epi_states,old_observation: old_epi_states, newvals: update_vals_vector})
+
+	# update policy function
+	epi_advantages_vector = np.expand_dims(epi_advantages, axis=1)
+	sess.run(pl_optimizer, feed_dict={observation: epi_states, old_observation: old_epi_states, advantage: epi_advantages_vector, pl_actions: epi_actions})
+
+	if episode%10==0:
+		s = sess.run(steps_summary,{observation: epi_states, old_observation: old_epi_states, newvals: update_vals_vector, advantage: epi_advantages_vector, pl_actions: epi_actions})
 		writer.add_summary(s,episode)
 
 	return totalreward
@@ -252,17 +369,21 @@ def run_episode(env, policy_grad, value_grad, sess):
 
 env = gym.make(env_name)
 
-observation = tf.placeholder("float",[None,obs_space_size],name = "states") #label d'entree observations
+obs_space_size = env.observation_space.shape[0]
+act_space_n = env.action_space.n
+
+observation = tf.placeholder(tf.float32,[None,obs_space_size],name = "states_t") #label d'entree observations
+old_observation = tf.placeholder(tf.float32,[None,obs_space_size],name = "states_t-1") #label d'entree observations
 
 #Policy Function
-pl_actions = tf.placeholder("float",[None,act_space_n],name="actions") #label d'entrainement
-advantage = tf.placeholder("float",[None,1],name="advantages") #label d'entrainement
+pl_actions = tf.placeholder(tf.float32,[None,act_space_n],name="actions") #label d'entrainement
+advantage = tf.placeholder(tf.float32,[None,1],name="advantages") #label d'entrainement
 
 #Value Function
-newvals = tf.placeholder("float",[None,1],name = "newvals") #label d'entrainement
+newvals = tf.placeholder(tf.float32,[None,1],name = "newvals") #label d'entrainement
 
 #Statistic Function (tensorboard)
-reward = tf.placeholder("float",[100,1],name = "Rewards")
+reward = tf.placeholder(tf.float32,[100,1],name = "Rewards")
 
 with tf.name_scope("Statistics"):
 	mean_reward = tf.reduce_sum(tf.reduce_mean(reward))
@@ -277,8 +398,8 @@ with tf.name_scope("Statistics"):
 
 # if intermediate_layer==Separated_Networks:
 
-value_grad,smry_value = value_gradient(observation,obs_space_size,newvals)
-policy_grad,smry_policy = policy_gradient(observation,obs_space_size,act_space_n,pl_actions,advantage)
+value_grad,smry_value = value_gradient(observation,old_observation,obs_space_size,newvals)
+policy_grad,smry_policy = policy_gradient(observation,old_observation,obs_space_size,act_space_n,pl_actions,advantage)
 steps_summary = tf.summary.merge([smry_value,smry_policy])
 
 # else :
@@ -294,14 +415,17 @@ rewards = [[0]] * 100
 sess = tf.InteractiveSession()
 sess.run(tf.global_variables_initializer())
 
-writer = tf.summary.FileWriter("./TB/{}HPSearch/InterLayer{}-LearnRate{}-G{}-B{}/".format(env_name,intermediate_layer,learning_rate,gamma,beta))
+writer = tf.summary.FileWriter("./TB/{}HPSearch/1/InterLayer{}-LearnRate{}-G{}-B{}/Recurrenttype/".format(env_name,intermediate_layer,learning_rate,gamma,beta))
 episode_summary = tf.summary.merge([smry_mean_reward,smry_stddev_reward,smry_max_reward])
 writer.add_graph(sess.graph)
 
 bestreward = -5000 #concidere comme un seuil puis comme un record
 
 for episode in xrange(number_Episodes):
-	epi_reward = run_episode(env, policy_grad, value_grad, sess)
+	if episode < totalrandomepisode:
+		epi_reward = run_randomepisode(env, policy_grad, value_grad, sess)
+	else:
+		epi_reward = run_episode(env, policy_grad, value_grad, sess)
 	rewards.append([epi_reward])
 	rewards.pop(0)
 
@@ -309,8 +433,8 @@ for episode in xrange(number_Episodes):
 		s = sess.run(episode_summary,{reward : rewards})
 		writer.add_summary(s,episode)
 
-	if epi_reward > bestreward or episode%250==0:
-		print "[{}] : reward : {}".format(episode,epi_reward)
+	# if epi_reward > bestreward or episode%250==0:
+	print "[{}] : reward : {}".format(episode,epi_reward)
 
 	if epi_reward> bestreward:
 		bestreward = epi_reward
