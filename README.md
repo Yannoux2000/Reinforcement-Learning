@@ -4,9 +4,6 @@ Currently working on :<br>
     - A3C Imprementation<br>
     - adding peper on that Actor-Critic-V2<br>
     <br>
-Files Archived :
-    -all the other (you won't get me to list everything in here :P)
-
 
 # Requirements
 
